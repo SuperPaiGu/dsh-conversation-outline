@@ -40,7 +40,7 @@ dsh plugin --profile web add ./dsh-conversation-outline-0.2.14.tgz
 
 **第 2 步**：重启 DSH Web 服务（先停止当前的 `dsh web`，再重新启动）。
 
-导航条会出现在对话右侧。
+安装后，在 **设置 → 插件 → 插件列表** 中会显示为 **`dsh-conversation-outline`**。导航条会出现在对话右侧。
 
 ### 从 GitHub 直接安装（不下载文件）
 
