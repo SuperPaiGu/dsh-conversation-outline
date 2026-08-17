@@ -1,0 +1,11 @@
+*.tgz
+node_modules/
+test-results/
+.debug-journal.md
+dark-mode-expanded.png
+debug-toggle-host-width.png
+desktop-shortcut-*.png
+manual-qa-*.png
+qa-*.png
+rail-*.png
+rail-visible-proof.png

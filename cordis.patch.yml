@@ -1,0 +1,7 @@
+# dsh-conversation-outline bundle layer: one host row keeping the loader entry
+# fiber alive so the client-module scanner picks up this package's dsh.client
+# declaration (platform: web) and serves its browser half. The plugin itself is
+# client-only; the host half intentionally does nothing.
+- insert:
+    - id: conversation-outline
+      name: dsh-conversation-outline
