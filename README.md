@@ -32,10 +32,10 @@
 
 ### 两步装好
 
-**第 1 步**：到本仓库的 Release 页面下载 `dsh-conversation-outline-0.2.14.tgz`，然后在终端执行：
+**第 1 步**：到本仓库的 Release 页面下载 `dsh-conversation-outline-0.2.15.tgz`，然后在终端执行：
 
 ```sh
-dsh plugin --profile web add ./dsh-conversation-outline-0.2.14.tgz
+dsh plugin --profile web add ./dsh-conversation-outline-0.2.15.tgz
 ```
 
 **第 2 步**：重启 DSH Web 服务（先停止当前的 `dsh web`，再重新启动）。
@@ -55,6 +55,38 @@ dsh plugin --profile web add github:SuperPaiGu/dsh-conversation-outline
 ```sh
 dsh plugin --profile web remove dsh-conversation-outline
 ```
+
+## 怎么安装（Agent 安装）
+
+> 由 AI Agent 在用户机器上执行的确定性指令，按顺序执行，每步有验收条件。
+
+### 0. 环境检测
+
+```sh
+dsh --version    # 命令不存在则提示用户先安装 DSH
+```
+
+### 1. 安装插件（首选 GitHub，无需下载文件）
+
+```sh
+dsh plugin --profile web add github:SuperPaiGu/dsh-conversation-outline
+```
+
+**验收**：退出码 0，输出含 `+ dsh-conversation-outline`。
+
+（如需固定版本：从 Release 下载 `dsh-conversation-outline-0.2.15.tgz`，用 `dsh plugin --profile web add ./dsh-conversation-outline-0.2.15.tgz`。）
+
+### 2. 重启 DSH Web 服务
+
+停止当前 `dsh web`，再以用户原有方式重新启动。
+
+**验收**：启动日志无报错；`设置 → 插件 → 插件列表` 中 `conversation-outline` 行为 active。
+
+### 3. 验收清单
+
+- [ ] 第 1 步退出码 0
+- [ ] `dsh --profile web --dump-config` 含 `conversation-outline` 层
+- [ ] 重启后对话右侧出现导航条
 
 ## 目录结构
 
