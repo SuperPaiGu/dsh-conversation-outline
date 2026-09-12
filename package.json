@@ -1,6 +1,6 @@
 {
   "name": "dsh-conversation-outline",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "DSH 对话导航条：在消息界面右侧悬浮显示本次会话的用户提问导航条，悬停预览、点击跳转、滚动高亮，并随 DSH locale 切换中英文",
   "type": "module",
   "main": "index.js",

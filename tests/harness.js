@@ -65,6 +65,17 @@ const { LOCALES, makeT } = pluginInstance.__test__
 export { LOCALES, makeT }
 
 export function makeUseSession(rows, options = {}) {
+  const snapshot = sessionSnapshot(rows, options)
+  return selector => selector(snapshot)
+}
+
+/**
+ * The raw session-scope snapshot shape the rail consumes: the chat projection
+ * (order + node store) plus the pagination flags `useSession` owns.
+ * @param {readonly {key: string, kind?: string, seq?: number, time?: number, text?: string}[]} rows
+ * @param {{ hasMore?: boolean, loadingOlder?: boolean }} [options]
+ */
+export function sessionSnapshot(rows, options = {}) {
   const order = rows.map(row => row.key)
   const map = new Map(rows.map(row => [row.key, {
     key: row.key,
@@ -81,7 +92,7 @@ export function makeUseSession(rows, options = {}) {
       source: null,
     },
   }]))
-  const snapshot = {
+  return {
     chat: {
       order,
       nodes: { get: key => map.get(key), values: () => map.values() },
@@ -89,5 +100,4 @@ export function makeUseSession(rows, options = {}) {
     hasMore: options.hasMore ?? false,
     loadingOlder: options.loadingOlder ?? false,
   }
-  return selector => selector(snapshot)
 }

@@ -9,10 +9,12 @@
  * scrolls to it, loading older history first when necessary.
  *
  * Composition:
- *   - 'shell.overlay' (list/root) is the frame-wide floating layer.
- *   - Our overlay entry declares a private session-scope child seat,
- *     'outline.body', so the framework hands us SessionProvider as a prop
- *     and the child occupant receives sessionId + useSession.
+ *   - 'conversation.session.header.utilities' (list/session) is the seat. It is
+ *     session-scoped, so the runtime binds `useSession` for us and the rail can
+ *     read the session's chat order directly.
+ *   - The seat renders inside the session header, so it offers no full-height
+ *     box; the rail chrome is fixed-positioned against the conversation
+ *     scrollport, which already excludes the sidebar.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-conversation-outline',
@@ -95,6 +97,18 @@ window.__ModuleLoader__.load({
     }
 
     const CSS_TEXT = `
+/* dsh 0.1.5 ships its own turn-navigation rail (ui-chat TurnNavigator): a
+   28px-wide, vertically centred ladder sitting in the same right-hand gutter
+   this rail occupies, for the same purpose. Two rails there are one too many,
+   so the built-in one is suppressed while this plugin is installed. Its class
+   names are build-hashed ("<hash>_frame"), so the accessible name is the only
+   stable handle; railOwnerObserver() covers a renamed label. */
+nav[aria-label="轮次导航"],
+nav[aria-label="Turn navigation"],
+nav[data-outline-suppressed="true"] {
+  display: none !important;
+}
+
 [data-outline-region] {
   position: absolute;
   right: 0;
@@ -234,21 +248,6 @@ body[data-ds-dark-theme] [data-outline-background] {
 `
 
     /**
-     * Parse the third track width from a CSS grid-template-columns value.
-     * Expected input: "260px minmax(0, 1fr) 0px" -> 0.
-     * @param {string} value
-     * @returns {number}
-     */
-    function parseDetailsWidth(value) {
-      if (typeof value !== 'string') return 0
-      const tracks = value.trim().split(/\s+/)
-      const third = tracks[2]
-      if (third === undefined) return 0
-      const match = third.match(/^(\d+(?:\.\d+)?)px$/)
-      return match !== null ? Number.parseFloat(match[1]) : 0
-    }
-
-    /**
      * Safely query a chat row by its anchor key, escaping the key for CSS.
      * Falls back to a manual scan if CSS.escape is unavailable.
      * @param {string} key
@@ -269,6 +268,47 @@ body[data-ds-dark-theme] [data-outline-background] {
         }
       }
       return null
+    }
+
+    /**
+     * Suppress the built-in turn-navigation rail by shape, for the case where
+     * its accessible name changes.
+     *
+     * The CSS rule above handles today's labels. This fallback watches the
+     * transcript for a newly added `<nav>` that is absolutely positioned, no
+     * wider than a rail, and living in the right gutter — the geometry no other
+     * navigation matches. It only hides what it finds; layout classes stay
+     * untouched.
+     *
+     * @returns a disposer that stops the observer.
+     */
+    function suppressBuiltInRail() {
+      if (typeof document === 'undefined' || typeof MutationObserver !== 'function') {
+        return () => {}
+      }
+      const isRailShaped = (node) => {
+        if (!(node instanceof HTMLElement) || node.tagName !== 'NAV') return false
+        const style = window.getComputedStyle(node)
+        if (style.display === 'none' || style.position !== 'absolute') return false
+        const rect = node.getBoundingClientRect()
+        if (rect.width <= 0 || rect.width > 40 || rect.height <= 0) return false
+        return rect.left >= window.innerWidth * 0.55
+      }
+      const sweep = (root) => {
+        if (!(root instanceof HTMLElement) && root !== document) return
+        const scope = root === document ? document : root
+        for (const nav of scope.querySelectorAll('nav')) {
+          if (isRailShaped(nav)) nav.setAttribute('data-outline-suppressed', 'true')
+        }
+      }
+      sweep(document)
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) sweep(node)
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+      return () => { observer.disconnect() }
     }
 
     /**
@@ -294,15 +334,11 @@ body[data-ds-dark-theme] [data-outline-background] {
     }
 
     /**
-     * Session-scope occupant of the private 'outline.body' seat.
+     * The rail itself: reads the session's chat snapshot and draws the
+     * indicators, hover card, scroll-spy highlight, and click-to-jump behavior.
      */
     function OutlineBody(props) {
-      const { useSession, loadOlder } = props
-
-      const order = useSession((s) => s.chat.order)
-      const nodes = useSession((s) => s.chat.nodes)
-      const hasMore = useSession((s) => s.hasMore)
-      const loadingOlder = useSession((s) => s.loadingOlder)
+      const { order, nodes, hasMore, loadingOlder, loadOlder } = props
 
       const questions = React.useMemo(
         () => collectQuestions(order, nodes),
@@ -515,44 +551,74 @@ body[data-ds-dark-theme] [data-outline-background] {
     }
 
     /**
-     * Root-scope occupant of 'shell.overlay'. Owns the floating chrome,
-     * responsive positioning, and bridges into session scope through the
-     * injected SessionProvider.
+     * Occupant of the session-scoped 'conversation.session.header.utilities'
+     * seat: the fixed-position chrome wrapper plus the rail itself.
+     *
+     * The seat is a utility row in the session header, so it offers no
+     * full-height box to hang a rail on; the wrapper is fixed-positioned
+     * against the conversation scrollport instead, which already excludes the
+     * sidebar. Because the seat is session-scoped, the rail reads the session
+     * store directly — the pre-0.1.5 build had to bridge into session scope from
+     * the root-scope 'shell.overlay' seat through an injected SessionProvider,
+     * and that bridge no longer yields a session binding.
+     *
+     * @param props - the seat's standard session props plus the injected loadOlder.
      */
-    function OutlineHost(props) {
-      const { SessionProvider, renderSlot } = props
+    function OutlineRail(props) {
+      const { useChat, useSession, loadOlder } = props
       const hostRef = React.useRef(null)
-      const [right, setRight] = React.useState(0)
+      const [right, setRight] = React.useState(null)
+
+      // 0.1.5 moved the chat projection out of the session snapshot and into the
+      // `chat` hook ui-chat provides on the session scope; `useSession` carries
+      // only session lifecycle state now, and still owns pagination.
+      const snapshot = useChat((s) => s)
+      const order = snapshot ? snapshot.order : undefined
+      const nodes = snapshot ? snapshot.nodes : undefined
+      const hasMore = useSession((s) => s && s.hasMore)
+      const loadingOlder = useSession((s) => s && s.loadingOlder)
 
       React.useLayoutEffect(() => {
-        const host = hostRef.current
-        if (host === null) return undefined
-        const frame = host.closest('[data-shell-overlay]')?.parentElement
-        if (!(frame instanceof HTMLElement)) return undefined
-
-        const observer = new ResizeObserver(() => {
-          const columns = window.getComputedStyle(frame).gridTemplateColumns
-          setRight(parseDetailsWidth(columns))
-        })
-        observer.observe(frame)
-        setRight(parseDetailsWidth(window.getComputedStyle(frame).gridTemplateColumns))
-
-        return () => observer.disconnect()
+        const measure = () => {
+          const scroller = document.querySelector('[data-conversation-scroll]')
+          if (!(scroller instanceof HTMLElement)) return
+          const rect = scroller.getBoundingClientRect()
+          setRight(Math.max(0, Math.round(window.innerWidth - rect.right)))
+        }
+        measure()
+        window.addEventListener('resize', measure)
+        const scroller = document.querySelector('[data-conversation-scroll]')
+        let observer = null
+        if (scroller instanceof HTMLElement && typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(measure)
+          observer.observe(scroller)
+        }
+        return () => {
+          window.removeEventListener('resize', measure)
+          if (observer !== null) observer.disconnect()
+        }
       }, [])
 
-      if (typeof SessionProvider !== 'function') return null
+      const body = React.createElement(OutlineBody, { order, nodes, hasMore, loadingOlder, loadOlder })
+
+      // Until the conversation viewport is measurable there is nowhere to draw.
+      if (right === null) return null
       return React.createElement(
         'div',
         {
           ref: hostRef,
           'data-outline-host': true,
-          style: { position: 'absolute', top: 0, bottom: 0, right: `${right + RAIL_RIGHT_GAP}px`, width: `${RAIL_WIDTH}px`, pointerEvents: 'none' },
+          style: {
+            position: 'fixed',
+            top: 0,
+            bottom: 0,
+            right: `${right + RAIL_RIGHT_GAP}px`,
+            width: `${RAIL_WIDTH}px`,
+            pointerEvents: 'none',
+            zIndex: 5,
+          },
         },
-        React.createElement(
-          SessionProvider,
-          { empty: null },
-          () => renderSlot('outline.body', {}),
-        ),
+        body,
       )
     }
 
@@ -570,7 +636,12 @@ body[data-ds-dark-theme] [data-outline-background] {
           document.head.append(style)
         }
 
+        // The built-in turn-navigation rail shares this gutter; suppress it
+        // while this rail owns the space.
+        const restoreBuiltInRail = suppressBuiltInRail()
+
         ctx.effect(() => () => {
+          restoreBuiltInRail()
           localeDisposer()
           if (style !== null) {
             style.remove()
@@ -578,16 +649,13 @@ body[data-ds-dark-theme] [data-outline-background] {
           }
         }, 'conversation-outline: cleanup')
 
-        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-          name: 'shell.overlay',
+        // Session-scoped seat: the rail reads the chat projection through the
+        // `useChat` hook and the pagination flags through `useSession`, both
+        // bound by the framework for this scope.
+        ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+          name: 'conversation.session.header.utilities',
           id: 'conversation-outline',
-          children: {
-            'outline.body': { kind: 'single', scope: 'session' },
-          },
-        }, OutlineHost))
-
-        ctx.slots.inject('outline.body', () => ctx.slots.register({
-          name: 'outline.body',
+          order: 40,
           locale: LOCALE_NS,
           inject: (sessionId) => ({
             loadOlder: () => {
@@ -597,10 +665,10 @@ body[data-ds-dark-theme] [data-outline-background] {
               }
             },
           }),
-        }, OutlineBody))
+        }, OutlineRail))
       },
       // Exposed for unit tests; the runtime never reads these.
-       __test__: { extractText, collectQuestions, getReadingLineKey, OutlineBody, OutlineHost, RAIL_WIDTH, RAIL_HEIGHT, PAGE_MAX_HEIGHT, ROW_HEIGHT, WRAPPER_MAX_WIDTH, DASH_WIDTH, DASH_HEIGHT, INDICATOR_WIDTH, INDICATOR_HEIGHT, RAIL_RIGHT_GAP, LOCALES, makeT, CSS_TEXT },
+       __test__: { extractText, collectQuestions, getReadingLineKey, OutlineBody, OutlineRail, suppressBuiltInRail, RAIL_WIDTH, RAIL_HEIGHT, PAGE_MAX_HEIGHT, ROW_HEIGHT, WRAPPER_MAX_WIDTH, DASH_WIDTH, DASH_HEIGHT, INDICATOR_WIDTH, INDICATOR_HEIGHT, RAIL_RIGHT_GAP, LOCALES, makeT, CSS_TEXT },
     }
   },
 })

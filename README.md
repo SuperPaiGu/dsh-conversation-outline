@@ -2,6 +2,18 @@
 
 给 DeepSeek Harness（DSH）加一个 **对话导航条**：在消息界面右侧悬浮显示本次会话的用户提问时间轴。收起时只显示一列短横线，hover 后向左展开半透明面板，显示每条提问的标题，点击即可跳转到对应消息，滚动对话时还会自动高亮当前阅读位置。
 
+## 更新记录
+
+### v0.2.16
+
+- **修复：在 DSH 0.1.5 上导航条完全不渲染。** 两个原因叠加：
+
+  1. **挂载位置失效**。插件原先挂在 `shell.overlay` 上——那是 **root 作用域**（`{ kind: 'list', scope: 'root' }`）。旧版靠往里面塞一个 `SessionProvider` 来「借」会话作用域，但在 0.1.5 里 `renderSessionArea` 拿到的 `binding.key` 是 undefined，于是直接渲染 empty（null），rail 消失。现在改挂**会话作用域**的 `conversation.session.header.utilities`，`useSession` / `useChat` 由框架直接绑定，不再需要桥接。
+  2. **chat 数据换了位置**。0.1.5 把 chat 投影从会话快照里搬走了：会话快照现在只有 `sessionId / queue / running / hasMore / …`，**没有 `chat`**；chat 改由 `ui-chat` 通过 `uiSession.provide({ hooks: { chat } })` 以独立 **`useChat`** hook 提供。插件原先读 `useSession(s => s.chat.order)`，因此抛 `Cannot read properties of undefined`。
+
+- **外观与行为不变**：仍是右侧 34×300 垂直居中的悬浮 rail（hover 展开、点击跳转、滚动高亮）。定位改为 `position: fixed`，右边界从 `[data-conversation-scroll]` 实测得出（已排除侧栏），因此不再依赖宿主必须是全高容器。
+- 测试从 54 项中的 host 组同步到新 props 形状。
+
 ## 预览
 
 ### 展开状态
@@ -32,10 +44,10 @@
 
 ### 两步装好
 
-**第 1 步**：到本仓库的 Release 页面下载 `dsh-conversation-outline-0.2.15.tgz`，然后在终端执行：
+**第 1 步**：到本仓库的 Release 页面下载 `dsh-conversation-outline-0.2.16.tgz`，然后在终端执行：
 
 ```sh
-dsh plugin --profile web add ./dsh-conversation-outline-0.2.15.tgz
+dsh plugin --profile web add ./dsh-conversation-outline-0.2.16.tgz
 ```
 
 **第 2 步**：重启 DSH Web 服务（先停止当前的 `dsh web`，再重新启动）。
@@ -74,7 +86,7 @@ dsh plugin --profile web add github:SuperPaiGu/dsh-conversation-outline
 
 **验收**：退出码 0，输出含 `+ dsh-conversation-outline`。
 
-（如需固定版本：从 Release 下载 `dsh-conversation-outline-0.2.15.tgz`，用 `dsh plugin --profile web add ./dsh-conversation-outline-0.2.15.tgz`。）
+（如需固定版本：从 Release 下载 `dsh-conversation-outline-0.2.16.tgz`，用 `dsh plugin --profile web add ./dsh-conversation-outline-0.2.16.tgz`。）
 
 ### 2. 重启 DSH Web 服务
 

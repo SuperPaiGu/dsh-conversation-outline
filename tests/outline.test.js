@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
-import { loadPlugin, makeUseSession, makeT } from './harness.js'
+import { loadPlugin, makeUseSession, makeT, sessionSnapshot } from './harness.js'
 
 const plugin = loadPlugin()
 const {
-  OutlineBody, OutlineHost,
+  OutlineBody, OutlineRail,
   RAIL_WIDTH, RAIL_HEIGHT, PAGE_MAX_HEIGHT, ROW_HEIGHT,
   WRAPPER_MAX_WIDTH, DASH_WIDTH, DASH_HEIGHT,
   INDICATOR_WIDTH, INDICATOR_HEIGHT,
@@ -58,11 +58,12 @@ function createScrollerWithRows(keys) {
 }
 
 function renderBody(questions, options = {}) {
-  const useSession = makeUseSession(questions, options)
+  const snapshot = sessionSnapshot(questions, options)
   return render(React.createElement(OutlineBody, {
-    sessionId: 's1',
-    useSession,
-    t: makeT(options.locale ?? 'zh'),
+    order: snapshot.chat.order,
+    nodes: snapshot.chat.nodes,
+    hasMore: snapshot.hasMore,
+    loadingOlder: snapshot.loadingOlder,
     loadOlder: options.loadOlder ?? vi.fn(),
   }))
 }
@@ -108,14 +109,16 @@ describe('visibility gate', () => {
     const view = renderBody([{ key: 'u1', text: 'Hello' }])
     expect(screen.queryByTestId('outline-region')).toBeNull()
 
+    const two = sessionSnapshot([
+      { key: 'u1', text: 'Hello' },
+      { key: 'u2', text: 'World' },
+    ])
     view.rerender(
       React.createElement(OutlineBody, {
-        sessionId: 's1',
-        useSession: makeUseSession([
-          { key: 'u1', text: 'Hello' },
-          { key: 'u2', text: 'World' },
-        ]),
-        t: makeT('zh'),
+        order: two.chat.order,
+        nodes: two.chat.nodes,
+        hasMore: two.hasMore,
+        loadingOlder: two.loadingOlder,
         loadOlder: vi.fn(),
       }),
     )
@@ -561,21 +564,53 @@ describe('CSS geometry contract', () => {
 })
 
 describe('host', () => {
+  // The rail chrome is fixed-positioned against the conversation scrollport, so
+  // it renders only once that viewport is measurable.
+  //
+  // Props mirror the session-scoped seat: `useChat` carries the chat projection
+  // (0.1.5 moved it off the session snapshot) and `useSession` the pagination
+  // flags.
+  function railProps(rows = []) {
+    const snapshot = sessionSnapshot(rows)
+    return {
+      useChat: (selector) => selector({ order: snapshot.chat.order, nodes: snapshot.chat.nodes }),
+      useSession: (selector) => selector({
+        hasMore: snapshot.hasMore,
+        loadingOlder: snapshot.loadingOlder,
+      }),
+      loadOlder: () => {},
+    }
+  }
+
+  function mountRail() {
+    const scroller = document.createElement('div')
+    scroller.setAttribute('data-conversation-scroll', '')
+    scroller.getBoundingClientRect = () => ({ top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600 })
+    document.body.append(scroller)
+    render(React.createElement(OutlineRail, railProps()))
+    return scroller
+  }
+
   test('host has pointer-events none', () => {
-    function SessionProvider({ children }) { return children() }
-    render(React.createElement(OutlineHost, {
-      SessionProvider,
-      renderSlot: () => React.createElement('div', { 'data-outline-region': true }),
-    }))
+    mountRail()
     expect(document.querySelector('[data-outline-host]').style.pointerEvents).toBe('none')
   })
 
   test('host width matches rail width', () => {
-    function SessionProvider({ children }) { return children() }
-    render(React.createElement(OutlineHost, {
-      SessionProvider,
-      renderSlot: () => React.createElement('div', { 'data-outline-region': true }),
-    }))
+    mountRail()
     expect(document.querySelector('[data-outline-host]')).toHaveStyle({ width: `${RAIL_WIDTH}px` })
+  })
+
+  test('host is fixed-positioned against the conversation viewport', () => {
+    mountRail()
+    const host = document.querySelector('[data-outline-host]')
+    expect(host.style.position).toBe('fixed')
+    // window.innerWidth - scroller right edge + the rail's own right gap.
+    expect(host.style.right).toBe(`${window.innerWidth - 800 + RAIL_RIGHT_GAP}px`)
+  })
+
+  test('renders nothing before the conversation viewport exists', () => {
+    render(React.createElement(OutlineRail, railProps()))
+    expect(document.querySelector('[data-outline-host]')).toBeNull()
   })
 })
