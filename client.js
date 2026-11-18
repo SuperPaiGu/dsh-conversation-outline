@@ -659,9 +659,13 @@ body[data-ds-dark-theme] [data-outline-background] {
           locale: LOCALE_NS,
           inject: (sessionId) => ({
             loadOlder: () => {
-              const scoped = ctx.sessions.scope(sessionId)
-              if (typeof scoped?.loadOlder === 'function') {
-                void scoped.loadOlder()
+              // `scope()` yields the AgentContext (a Cordis scope, not a session
+              // object), so the paging verb lives on the public Session binding:
+              // SessionFace.loadOlder(). Keep the shape guard so a future DSH
+              // release that moves the verb degrades to no paging, not a throw.
+              const session = ctx.sessions.binding(sessionId)?.session
+              if (typeof session?.loadOlder === 'function') {
+                void session.loadOlder().catch(() => {})
               }
             },
           }),
